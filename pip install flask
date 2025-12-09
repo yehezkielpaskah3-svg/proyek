@@ -1,0 +1,346 @@
+from flask import Flask, request, redirect, url_for, render_template_string, flash
+import re
+import json
+import os
+
+# =========================================================
+# Custom Exception
+# =========================================================
+class AppException(Exception):
+    pass
+
+# =========================================================
+# Base Class (Pewarisan + Enkapsulasi)
+# =========================================================
+class Person:
+    def __init__(self, nama):
+        self._nama = nama  # enkapsulasi
+
+    def tampil_dict(self):
+        return {"nama": self._nama}
+
+    def getNama(self):
+        return self._nama
+
+    def setNama(self, nama):
+        self._nama = nama
+
+# =========================================================
+# Class Student (inherit Person)
+# =========================================================
+class Student(Person):
+    def __init__(self, nama, nim):
+        super().__init__(nama)
+        self._nim = nim
+
+    def tampil_dict(self):
+        return {"nama": self._nama, "nim": self._nim}
+
+    def getNIM(self):
+        return self._nim
+
+    def setNIM(self, nim):
+        self._nim = nim
+
+# =========================================================
+# Validasi REGEX
+# =========================================================
+def validNama(nama):
+    return re.fullmatch(r"[A-Za-z ]{2,}", nama) is not None
+
+def validNIM(nim):
+    return re.fullmatch(r"\d{12}", nim) is not None
+
+# =========================================================
+# File I/O
+# =========================================================
+FILE = os.environ.get("DATA_FILE", "mahasiswa.json")
+
+def simpanFile(data):
+    with open(FILE, "w", encoding="utf-8") as f:
+        json.dump([[m.getNama(), m.getNIM()] for m in data], f, ensure_ascii=False, indent=2)
+
+def muatFile():
+    try:
+        with open(FILE, "r", encoding="utf-8") as f:
+            isi = json.load(f)
+            return [Student(n, ni) for n, ni in isi]
+    except:
+        return []
+
+# =========================================================
+# Searching
+# =========================================================
+def linearSearch(data, nim):
+    for i in range(len(data)):
+        if data[i].getNIM() == nim:
+            return i
+    return -1
+
+def sequentialSearch(data, nama):
+    hasil = []
+    for i in range(len(data)):
+        if nama.lower() in data[i].getNama().lower():
+            hasil.append(i)
+    return hasil
+
+def binarySearch(data, nim):
+    kiri = 0
+    kanan = len(data) - 1
+    while kiri <= kanan:
+        mid = (kiri + kanan) // 2
+        if data[mid].getNIM() == nim:
+            return mid
+        elif data[mid].getNIM() < nim:
+            kiri = mid + 1
+        else:
+            kanan = mid - 1
+    return -1
+
+# =========================================================
+# Sorting
+# =========================================================
+def bubbleSort(data):
+    n = len(data)
+    for i in range(n - 1):
+        for j in range(n - i - 1):
+            if data[j].getNIM() > data[j+1].getNIM():
+                data[j], data[j+1] = data[j+1], data[j]
+
+def insertionSort(data):
+    for i in range(1, len(data)):
+        key = data[i]
+        j = i - 1
+        while j >= 0 and data[j].getNIM() > key.getNIM():
+            data[j + 1] = data[j]
+            j -= 1
+        data[j + 1] = key
+
+# =========================================================
+# Data Awal (dipakai bila file kosong)
+# =========================================================
+data_awal = [
+    ("afdal laia","241011402051"),
+    ("dimas","241011400248"),
+    ("Yehezkiel","241011402104"),
+    ("Rozi","241011400231"),
+    ("M Ichsan Fachrulrozi","241011400235"),
+    ("Bayu Abiakso","241011400277"),
+    ("firman gani","241011400233"),
+    ("Jiwa","241011401525"),
+    ("Medina","241011401536"),
+    ("Aldo","241011401526"),
+    ("Fadly","241011401528"),
+    ("Cristian yuda","241011402026"),
+    ("Fazri","241011402315"),
+    ("AFFAN DHIYA DIL AWAR","241011400266"),
+    ("Rido Maulidan","241011400232"),
+    ("Muzayin","241011400261"),
+    ("Sulthan Arya Satwika","241011401769"),
+    ("Maikel","241011400276"),
+    ("Fariz","241011400268"),
+    ("Timothy","241011401936"),
+    ("Rian","241011400228"),
+    ("Syahrul","241011400253"),
+    ("Faya","241011403270"),
+    ("Lina","241011402755"),
+    ("Ulya","241011401655"),
+    ("Nia","241011400254"),
+    ("Elis","241011402113"),
+    ("Gilang","241011400269"),
+    ("dika","221011401131"),
+    ("zidan","241011400901")
+]
+
+# =========================================================
+# Flask App: simple web UI + API
+# =========================================================
+app = Flask(__name__)
+app.secret_key = os.environ.get("FLASK_SECRET", "ganti_dengan_rahasia")
+
+def prepare_data():
+    data = muatFile()
+    if len(data) == 0:
+        for n, ni in data_awal:
+            data.append(Student(n, ni))
+        simpanFile(data)
+    return data
+
+HTML_TEMPLATE = """
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Manajemen Mahasiswa</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="p-4">
+<div class="container">
+  <h1>Manajemen Mahasiswa</h1>
+  {% with messages = get_flashed_messages() %}
+    {% if messages %}
+      <div class="mt-2">
+      {% for m in messages %}
+        <div class="alert alert-info">{{ m }}</div>
+      {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <h3>Tambah Mahasiswa</h3>
+  <form method="post" action="{{ url_for('add') }}" class="row g-2 mb-4">
+    <div class="col-auto">
+      <input name="nama" class="form-control" placeholder="Nama" required>
+    </div>
+    <div class="col-auto">
+      <input name="nim" class="form-control" placeholder="NIM (12 digit)" required>
+    </div>
+    <div class="col-auto">
+      <button class="btn btn-primary">Tambah</button>
+    </div>
+  </form>
+
+  <h3>Daftar Mahasiswa</h3>
+  <div class="mb-2">
+    <form method="get" action="{{ url_for('index') }}" class="d-flex">
+      <input class="form-control me-2" name="q" placeholder="Cari nama (substring)">
+      <button class="btn btn-outline-secondary">Cari</button>
+    </form>
+  </div>
+
+  <table class="table table-striped">
+    <thead><tr><th>#</th><th>Nama</th><th>NIM</th><th>Aksi</th></tr></thead>
+    <tbody>
+    {% for i, s in enumerate(data, start=1) %}
+      <tr>
+        <td>{{ i }}</td>
+        <td>{{ s.getNama() }}</td>
+        <td>{{ s.getNIM() }}</td>
+        <td>
+          <form method="post" action="{{ url_for('delete') }}" style="display:inline">
+            <input type="hidden" name="nim" value="{{ s.getNIM() }}">
+            <button class="btn btn-sm btn-danger" onclick="return confirm('Hapus?')">Hapus</button>
+          </form>
+          <button class="btn btn-sm btn-secondary" onclick="openEdit('{{ s.getNIM() }}','{{ s.getNama()|e }}')">Edit</button>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <h3>Operasi</h3>
+  <form method="post" action="{{ url_for('sort') }}" class="mb-2">
+    <button name="type" value="insertion" class="btn btn-outline-primary">Insertion Sort</button>
+    <button name="type" value="bubble" class="btn btn-outline-primary">Bubble Sort</button>
+  </form>
+
+  <!-- Edit Modal (simple) -->
+  <div id="editForm" style="display:none" class="card p-3">
+    <h5>Edit Mahasiswa</h5>
+    <form method="post" action="{{ url_for('edit') }}">
+      <input id="edit_nim" name="nim" type="hidden">
+      <div class="mb-2">
+        <input id="edit_nama" name="nama" class="form-control" placeholder="Nama baru">
+      </div>
+      <button class="btn btn-primary">Simpan</button>
+      <button type="button" class="btn btn-secondary" onclick="closeEdit()">Batal</button>
+    </form>
+  </div>
+
+</div>
+
+<script>
+function openEdit(nim, nama){
+  document.getElementById('editForm').style.display = 'block';
+  document.getElementById('edit_nim').value = nim;
+  document.getElementById('edit_nama').value = nama;
+}
+function closeEdit(){
+  document.getElementById('editForm').style.display = 'none';
+}
+</script>
+
+</body>
+</html>
+"""
+
+@app.route("/", methods=["GET"])
+def index():
+    data = prepare_data()
+    q = request.args.get("q", "").strip()
+    if q:
+        indices = sequentialSearch(data, q)
+        data = [data[i] for i in indices]
+    return render_template_string(HTML_TEMPLATE, data=data)
+
+@app.route("/add", methods=["POST"])
+def add():
+    data = prepare_data()
+    nama = request.form.get("nama", "").strip()
+    nim = request.form.get("nim", "").strip()
+    try:
+        if not validNama(nama):
+            raise AppException("Nama tidak valid!")
+        if not validNIM(nim):
+            raise AppException("NIM harus 12 digit angka!")
+        # cek duplikat
+        if linearSearch(data, nim) != -1:
+            raise AppException("NIM sudah ada!")
+        data.append(Student(nama, nim))
+        simpanFile(data)
+        flash("Data berhasil ditambahkan.")
+    except AppException as e:
+        flash(str(e))
+    return redirect(url_for("index"))
+
+@app.route("/edit", methods=["POST"])
+def edit():
+    data = prepare_data()
+    nim = request.form.get("nim", "").strip()
+    namaBaru = request.form.get("nama", "").strip()
+    try:
+        idx = linearSearch(data, nim)
+        if idx == -1:
+            raise AppException("Data tidak ditemukan!")
+        if not validNama(namaBaru):
+            raise AppException("Nama tidak valid!")
+        data[idx].setNama(namaBaru)
+        simpanFile(data)
+        flash("Data berhasil diubah.")
+    except AppException as e:
+        flash(str(e))
+    return redirect(url_for("index"))
+
+@app.route("/delete", methods=["POST"])
+def delete():
+    data = prepare_data()
+    nim = request.form.get("nim", "").strip()
+    idx = linearSearch(data, nim)
+    if idx == -1:
+        flash("Data tidak ditemukan!")
+    else:
+        del data[idx]
+        simpanFile(data)
+        flash("Data dihapus.")
+    return redirect(url_for("index"))
+
+@app.route("/sort", methods=["POST"])
+def sort():
+    data = prepare_data()
+    typ = request.form.get("type", "insertion")
+    if typ == "bubble":
+        bubbleSort(data)
+    else:
+        insertionSort(data)
+    simpanFile(data)
+    flash("Data disortir dengan " + typ)
+    return redirect(url_for("index"))
+
+# API endpoints (optional)
+@app.route("/api/list", methods=["GET"])
+def api_list():
+    data = prepare_data()
+    return {"data":[s.tampil_dict() for s in data]}
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
